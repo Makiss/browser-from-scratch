@@ -1,4 +1,4 @@
-from URL import URL
+from src.url import URL
 
 def show(body: str):
     in_tag = False
