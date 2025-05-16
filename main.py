@@ -1,6 +1,6 @@
 from URL import URL
 
-def show(body):
+def show(body: str):
     in_tag = False
     for c in body:
         if c == "<":
@@ -10,7 +10,7 @@ def show(body):
         elif not in_tag:
             print(c, end="")
 
-def load(url):
+def load(url: URL):
     body = url.request()
     show(body)
 

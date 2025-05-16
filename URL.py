@@ -1,8 +1,9 @@
 import socket
 import ssl
+from Headers import Headers
 
 class URL:
-    def __init__(self, url:str):
+    def __init__(self, url: str):
         self.scheme, url = url.split("://", 1)
         assert self.scheme in ["http", "https"]
         if "/" not in url:
@@ -16,8 +17,15 @@ class URL:
         if ":" in self.host:
             self.host, port = self.host.split(":", 1)
             self.port = int(port)
+        self.headers = Headers()
+        self._set_default_headers()
+    
+    def _set_default_headers(self) -> None:
+        self.headers.set("Host", self.host)
+        self.headers.set("Connection", "close")
+        self.headers.set("User-Agent", "My Browser")
 
-    def request(self):
+    def request(self) -> str:
         s = socket.socket(
             family=socket.AF_INET,
             type=socket.SOCK_STREAM,
@@ -29,9 +37,7 @@ class URL:
             s = ctx.wrap_socket(s, server_hostname=self.host)
 
         request = "GET {} HTTP/1.1\r\n".format(self.path)
-        request += "Host: {}\r\n".format(self.host)
-        request += "Connection: close\r\n"
-        request += "User-Agent: My Browser\r\n"
+        request += str(self.headers)
         request += "\r\n"
         s.send(request.encode("utf8"))
 
