@@ -1,37 +1,73 @@
 import socket
 import ssl
+import base64
 from Headers import Headers
+from abc import ABC, abstractmethod
 
 class URL:
     def __init__(self, url: str):
-        self.scheme, url = url.split("://", 1)
-        assert self.scheme in ["http", "https", "file"]
-        if "/" not in url:
-            url = url + "/"
-        self.host, url = url.split("/", 1)
-        self.path = "/" + url
-        if self.scheme == "http":
-            self.port = 80
-        elif self.scheme == "https":
-            self.port = 443
-        if ":" in self.host:
-            self.host, port = self.host.split(":", 1)
-            self.port = int(port)
+        if url.startswith("data"):
+            url = url[5:]
+            if "," not in url:
+                raise ValueError("Invalid data URL: missing comma")
+            
+            metadata, data = url.split(",", 1)
+            is_base64 = ";base64" in metadata
+            if is_base64:
+                media_type = metadata.split(";base64")[0]
+            else:
+                media_type = metadata
+
+            if not media_type:
+                media_type = "text/plain"
+
+            self.handler = DataURL(data, is_base64, media_type)
+        else:
+            self.scheme, url = url.split("://", 1)
+            assert self.scheme in ["http", "https", "file"]
+
+            if self.scheme == "file":
+                self.handler = FileURL(url)
+            else:
+                if "/" not in url:
+                    url = url + "/"
+                host, url = url.split("/", 1)
+                path = "/" + url
+
+                if self.scheme == "http":
+                    port = 80
+                elif self.scheme == "https":
+                    port = 443
+
+                if ":" in host:
+                    host, port = host.split(":", 1)
+                    port = int(port)
+
+                self.handler = HttpURL(host, path, port, self.scheme)
+
+    def request(self) -> str:
+        return self.handler.request()
+        
+class URLHandler(ABC):
+    @abstractmethod
+    def request(self) -> str:
+        pass
+        
+class HttpURL(URLHandler):
+    def __init__(self, host: str, path: str, port: int, scheme: str):
+        self.host = host
+        self.path = path
+        self.port = port
+        self.scheme = scheme
         self.headers = Headers()
         self._set_default_headers()
 
-    def request(self) -> str:
-        if self.scheme == "file":
-            return self._request_file()
-        else:
-            return self._request_page()
-    
     def _set_default_headers(self) -> None:
         self.headers.set("Host", self.host)
         self.headers.set("Connection", "close")
         self.headers.set("User-Agent", "My Browser")
 
-    def _request_page(self) -> str:
+    def request(self) -> str:
         s = socket.socket(
             family=socket.AF_INET,
             type=socket.SOCK_STREAM,
@@ -63,7 +99,11 @@ class URL:
 
         return content
     
-    def _request_file(self) -> str:
+class FileURL(URLHandler):
+    def __init__(self, path: str):
+        self.path = path
+
+    def request(self) -> str:
         try:
             with open(self.path, 'r', encoding="utf-8") as f:
                 return f.read()
@@ -71,3 +111,19 @@ class URL:
             return "Error: File not found"
         except Exception as e:
             return f"Error: {str(e)}"
+
+class DataURL(URLHandler):
+    def __init__(self, data: str, is_base64: bool = False, media_type: str = "text/plain"):
+        self.data = data
+        self.is_base64 = is_base64
+        self.media_type = media_type
+
+    def request(self) -> str:
+        if self.is_base64:
+            try:
+                return base64.b64decode(self.data).decode("utf8")
+            except Exception as e:
+                return f"Error decoding base64 data: {str(e)}"
+        else:
+            return self.data
+    
