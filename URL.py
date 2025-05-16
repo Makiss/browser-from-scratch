@@ -5,7 +5,7 @@ from Headers import Headers
 class URL:
     def __init__(self, url: str):
         self.scheme, url = url.split("://", 1)
-        assert self.scheme in ["http", "https"]
+        assert self.scheme in ["http", "https", "file"]
         if "/" not in url:
             url = url + "/"
         self.host, url = url.split("/", 1)
@@ -19,13 +19,19 @@ class URL:
             self.port = int(port)
         self.headers = Headers()
         self._set_default_headers()
+
+    def request(self) -> str:
+        if self.scheme == "file":
+            return self._request_file()
+        else:
+            return self._request_page()
     
     def _set_default_headers(self) -> None:
         self.headers.set("Host", self.host)
         self.headers.set("Connection", "close")
         self.headers.set("User-Agent", "My Browser")
 
-    def request(self) -> str:
+    def _request_page(self) -> str:
         s = socket.socket(
             family=socket.AF_INET,
             type=socket.SOCK_STREAM,
@@ -56,4 +62,12 @@ class URL:
         s.close()
 
         return content
-
+    
+    def _request_file(self) -> str:
+        try:
+            with open(self.path, 'r', encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            return "Error: File not found"
+        except Exception as e:
+            return f"Error: {str(e)}"
