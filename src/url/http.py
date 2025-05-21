@@ -4,6 +4,7 @@ from .base import URLHandler
 from ..utils.headers import Headers
 from urllib.parse import urljoin
 from ..utils.cache import Cache
+import gzip
 
 class HttpURL(URLHandler):
     _connections = {}
@@ -21,6 +22,7 @@ class HttpURL(URLHandler):
     def _set_default_headers(self) -> None:
         self.headers.set("Host", self.host)
         self.headers.set("User-Agent", "My Browser")
+        self.headers.set("Accept-Encoding", "gzip")
 
     def _create_redirect_url(self, location: str) -> 'HttpURL':
         if not location.startswith(("http://", "https://")):
@@ -53,6 +55,29 @@ class HttpURL(URLHandler):
             port = int(port)
         
         return HttpURL(host, path, port, scheme)
+    
+    def _read_chunked_content(self, response) -> bytes:
+        content = bytearray()
+        while True:
+            chunk_size_line = response.readline().decode("utf8").strip()
+            if not chunk_size_line:
+                continue
+
+            chunk_size = int(chunk_size_line, 16)
+            if chunk_size == 0:
+                break
+
+            chunk = response.read(chunk_size)
+            content.extend(chunk)
+
+            response.readline()
+
+        return bytes(content) 
+    
+    def _decompress_content(self, content: bytes, encoding: str) -> bytes:
+        if encoding == "gzip":
+            return gzip.decompress(content)
+        return content
 
     def request(self, redirect_count: int = 0) -> str:
         if (redirect_count >= self.MAX_REDIRECTS):
@@ -101,18 +126,25 @@ class HttpURL(URLHandler):
                 new_url = self._create_redirect_url(location)
                 return new_url.request(redirect_count + 1)
 
-            if "content-length" in response_headers:
+            if "transfer-encoding" in response_headers and "chunked" in response_headers["transfer-encoding"].lower():
+                content = self._read_chunked_content(response)
+            elif "content-length" in response_headers:
                 content_length = int(response_headers["content-length"])
-                content = response.read(content_length).decode("utf8")
+                content = response.read(content_length)
             else:
-                content = response.read().decode("utf8")
+                content = response.read()
+            
+            if "content-encoding" in response_headers:
+                content = self._decompress_content(content, response_headers["content-encoding"].lower())
+
+            content_str = content.decode("utf8")
 
             self._connections[conn_key] = s
 
             if status == 200:
-                self._cache.set(cache_key, content, response_headers)
+                self._cache.set(cache_key, content_str, response_headers)
 
-            return content 
+            return content_str 
         
         except Exception as e:
             if conn_key in self._connections:
