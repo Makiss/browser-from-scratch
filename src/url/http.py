@@ -3,9 +3,11 @@ import ssl
 from .base import URLHandler
 from ..utils.headers import Headers
 from urllib.parse import urljoin
+from ..utils.cache import Cache
 
 class HttpURL(URLHandler):
     _connections = {}
+    _cache = Cache()
     MAX_REDIRECTS = 5
 
     def __init__(self, host: str, path: str, port: int, scheme: str):
@@ -56,6 +58,12 @@ class HttpURL(URLHandler):
         if (redirect_count >= self.MAX_REDIRECTS):
             raise Exception("Too many redirects")
         
+        cache_key = f"{self.scheme}://{self.host}:{self.port}{self.path}"
+
+        cached_response = self._cache.get(cache_key)
+        if cached_response:
+            return cached_response.content
+        
         conn_key = (self.host, self.port)
         s = self._connections.get(conn_key)
 
@@ -100,6 +108,9 @@ class HttpURL(URLHandler):
                 content = response.read().decode("utf8")
 
             self._connections[conn_key] = s
+
+            if status == 200:
+                self._cache.set(cache_key, content, response_headers)
 
             return content 
         
