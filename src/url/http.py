@@ -2,9 +2,11 @@ import socket
 import ssl
 from .base import URLHandler
 from ..utils.headers import Headers
+from urllib.parse import urljoin
 
 class HttpURL(URLHandler):
     _connections = {}
+    MAX_REDIRECTS = 5
 
     def __init__(self, host: str, path: str, port: int, scheme: str):
         self.host = host
@@ -18,7 +20,42 @@ class HttpURL(URLHandler):
         self.headers.set("Host", self.host)
         self.headers.set("User-Agent", "My Browser")
 
-    def request(self) -> str:
+    def _create_redirect_url(self, location: str) -> 'HttpURL':
+        if not location.startswith(("http://", "https://")):
+            base_url = f"{self.scheme}://{self.host}"
+            if self.port not in (80, 443):
+                base_url += f":{self.port}"
+            location = urljoin(base_url, location)
+
+        if location.startswith("http://"):
+            scheme = "http"
+            location = location[7:]
+        elif location.startswith("https://"):
+            scheme = "https"
+            location = location[8:]
+        else:
+            raise ValueError(f"Invalid redirect URL: {location}")
+        
+        if "/" not in location:
+            location = location + "/"
+        host, path = location.split("/", 1)
+        path = "/" + path
+
+        if scheme == "http":
+            port = 80
+        elif scheme == "https":
+            port = 443
+
+        if ":" in host:
+            host, port = host.split(":", 1)
+            port = int(port)
+        
+        return HttpURL(host, path, port, scheme)
+
+    def request(self, redirect_count: int = 0) -> str:
+        if (redirect_count >= self.MAX_REDIRECTS):
+            raise Exception("Too many redirects")
+        
         conn_key = (self.host, self.port)
         s = self._connections.get(conn_key)
 
@@ -41,6 +78,7 @@ class HttpURL(URLHandler):
             response = s.makefile("rb", newline="\r\n")
             statusline = response.readline().decode("utf8")
             version, status, explanation = statusline.split(" ", 2)
+            status = int(status)
 
             response_headers = {}
             while True:
@@ -49,6 +87,11 @@ class HttpURL(URLHandler):
                     break
                 header, value = line.split(":", 1)
                 response_headers[header.casefold()] = value.strip()
+
+            if 300 <= status < 400 and "location" in response_headers:
+                location = response_headers["location"]
+                new_url = self._create_redirect_url(location)
+                return new_url.request(redirect_count + 1)
 
             if "content-length" in response_headers:
                 content_length = int(response_headers["content-length"])
