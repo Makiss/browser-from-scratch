@@ -7,7 +7,7 @@ if __name__ == "__main__":
     import sys
     url = sys.argv[1]
     if url.startswith("view-source:"):
-        Browser().load(ViewSourceURL(url))
+        Browser().loadSource(ViewSourceURL(url))
     else:
         Browser().load(URL(sys.argv[1]))
-    tkinter.mainloop()
+        tkinter.mainloop()
