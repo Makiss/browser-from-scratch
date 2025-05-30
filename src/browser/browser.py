@@ -2,7 +2,8 @@ import tkinter
 import tkinter.font
 from src.url.url import URL
 from src.browser.htmlParser import HTMLParser
-from src.browser.layout import Layout
+from src.browser.layout import DocumentLayout
+from src.browser.layout import paint_tree
 
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
@@ -22,7 +23,10 @@ class Browser:
     def load(self, url: URL):
         body = url.request()
         self._nodes = HTMLParser(body).parse()
-        self._display_list = Layout(self._nodes).display_list
+        self._document = DocumentLayout(self._nodes)
+        self._document.layout()
+        self._display_list = []
+        paint_tree(self._document, self._display_list)
         self._draw()
 
     def loadSource(self, url: URL):
@@ -30,17 +34,19 @@ class Browser:
         print(body)
     
     def _scroll_down(self, _):
-        self._scroll += SCROLL_STEP
+        max_y = max(self._document.height + 2 * VSTEP - HEIGHT, 0)
+        self._scroll = min(self._scroll + SCROLL_STEP, max_y)
         self._draw()
     
     def _scroll_up(self, _):
-        self._scroll -= SCROLL_STEP
+        min_y = 0
+        self._scroll = max(self._scroll - SCROLL_STEP, min_y)
         self._draw()
 
     def _draw(self):
         self._canvas.delete("all")
-        for x, y, word, font in self._display_list:
-            if y > self._scroll + HEIGHT: continue
-            if y + VSTEP < self._scroll: continue
-            self._canvas.create_text(x, y - self._scroll, text=word, anchor="nw", font=font)
+        for cmd in self._display_list:
+            if cmd.top > self._scroll + HEIGHT: continue
+            if cmd.bottom < self._scroll: continue
+            cmd.execute(self._scroll, self._canvas)
        
